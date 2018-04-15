@@ -262,7 +262,7 @@ ExtendedBinning TemplateHelpers::getDiscriminantFineBinning(const SampleHelpers:
         for (unsigned int i=0; i<=nbins; i++) res.addBinBoundary(vlow + double(i)/double(nbins)*(vhigh-vlow));
       }
       else if (category==CategorizationHelpers::JJVBFTagged || category==CategorizationHelpers::HadVHTagged){
-        unsigned int const nbins = 20;
+        unsigned int const nbins = 7;
         for (unsigned int i=0; i<=nbins; i++) res.addBinBoundary(vlow + double(i)/double(nbins)*(vhigh-vlow));
       }
       break;
