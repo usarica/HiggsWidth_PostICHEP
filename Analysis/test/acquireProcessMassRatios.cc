@@ -13,6 +13,8 @@
 const TString user_output_dir = "output/";
 #endif
 
+using HistogramSmootherWithGaussianKernel::getSmoothHistogram;
+
 
 ExtendedBinning getMassBinning(TTree* tree, bool separateZ4l=false);
 void acquireMassRatio_ProcessSystToNominal_PythiaMINLO_one(
@@ -729,6 +731,7 @@ void acquireMassRatio_ProcessSystToNominal_PythiaMINLO_one(
 
       // Build the analyzer and loop over the events
       TemplatesEventAnalyzer theAnalyzer(theSampleSet, channel, category);
+      theAnalyzer.setVerbosity(true);
       theAnalyzer.setExternalProductTree(theOutputTree[i]);
       // Book common variables needed for analysis
       theAnalyzer.addConsumed<float>("PUWeight");
@@ -803,6 +806,7 @@ void acquireMassRatio_ProcessSystToNominal_PythiaMINLO_one(
       TTree* tree = theOutputTree[i]->getSelectedTree();
       bool isCategory=(category==Inclusive);
       float ZZMass, weight;
+      tree->ResetBranchAddresses();
       tree->SetBranchAddress("ZZMass", &ZZMass);
       tree->SetBranchAddress("weight", &weight);
       if (!isCategory){
@@ -904,9 +908,9 @@ void acquireMassRatio_ProcessSystToNominal_PythiaMINLO_one(
     }
     MELAout << "KDs: " << KDset << endl;
     unordered_map<TString, float> KDvars;
-    for (auto& KDname:KDset) KDvars[KDname]=0;
+    for (TString const& KDname:KDset) KDvars[KDname]=0;
     vector<ExtendedBinning> KDbinning;
-    for (auto& KDname:KDset){
+    for (TString const& KDname:KDset){
       if (KDname!="ZZMass") KDbinning.push_back(getDiscriminantFineBinning(channel, category, KDname, (CategorizationHelpers::MassRegion) massregion));
       else KDbinning.push_back(binning_mass);
     }
@@ -916,15 +920,23 @@ void acquireMassRatio_ProcessSystToNominal_PythiaMINLO_one(
 
     for (unsigned int i=0; i<2; i++){
       TTree* tree = theOutputTree[i]->getSelectedTree();
+      tree->ResetBranchAddresses();
       bookBranch(tree, "weight", &weight);
-      for (auto& KDname:KDset) bookBranch(tree, KDname, &(KDvars[KDname]));
+      for (TString const& KDname:KDset) bookBranch(tree, KDname, &(KDvars.find(KDname)->second));
       if (catFlagName!="") bookBranch(tree, catFlagName, &isCategory);
     }
 
     if (nKDs==2){
+      assert(
+        KDvars.find(KDset.at(0))!=KDvars.cend()
+        &&
+        KDvars.find(KDset.at(1))!=KDvars.cend()
+      );
+
       TH2F* hDistro[2];
       for (unsigned int i=0; i<2; i++){
         TTree* tree = theOutputTree[i]->getSelectedTree();
+        isCategory=true;
         hDistro[i] = getSmoothHistogram(
           (i==0 ? strSystematics_Nominal.Data() : strSystematics.Data()), "",
           KDbinning.at(0), KDbinning.at(1),
@@ -944,9 +956,18 @@ void acquireMassRatio_ProcessSystToNominal_PythiaMINLO_one(
       for (unsigned int i=0; i<2; i++) delete hDistro[i];
     }
     else if (nKDs==3){
+      assert(
+        KDvars.find(KDset.at(0))!=KDvars.cend()
+        &&
+        KDvars.find(KDset.at(1))!=KDvars.cend()
+        &&
+        KDvars.find(KDset.at(2))!=KDvars.cend()
+      );
+
       TH3F* hDistro[2];
       for (unsigned int i=0; i<2; i++){
         TTree* tree = theOutputTree[i]->getSelectedTree();
+        isCategory=true;
         hDistro[i] = getSmoothHistogram(
           (i==0 ? strSystematics_Nominal.Data() : strSystematics.Data()), "",
           KDbinning.at(0), KDbinning.at(1), KDbinning.at(2),
