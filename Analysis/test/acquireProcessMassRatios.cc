@@ -13,7 +13,7 @@
 const TString user_output_dir = "output/";
 #endif
 
-using HistogramSmootherWithGaussianKernel::getSmoothHistogram;
+using namespace HistogramSmootherWithGaussianKernel;
 
 
 ExtendedBinning getMassBinning(TTree* tree, float& ZZMass, bool& flag, bool separateZ4l=false);
@@ -37,6 +37,8 @@ void acquireMassRatio_ProcessNominalToNominalInclusive_one(
   if (!thePerProcessHandle) return;
   if (!systematicAllowed(category, channel, thePerProcessHandle->getProcessType(), syst, strGenerator)) return;
   if (proctype==ProcessHandler::kZX && strGenerator!="Data") return;
+
+  TDirectory* rootdir = gDirectory;
 
   const TString strChannel = getChannelName(channel);
   const TString strCategory = getCategoryName(category);
@@ -217,6 +219,8 @@ void acquireMassRatio_ProcessNominalToNominalInclusive_one(
   MELAout << "===============================" << endl;
   MELAout << endl;
 
+  rootdir->cd();
+  vector<ExtendedHistogram_1D> hRatio; hRatio.reserve(treeGroups.size());
   for (auto& treeGroup:treeGroups){
     int nEntriesMin=-1;
     TTree* treeChosen=nullptr;
@@ -228,24 +232,37 @@ void acquireMassRatio_ProcessNominalToNominalInclusive_one(
       }
     }
 
-    bool isCategory=(treeChosen==treeGroup.at(0));
+    bool isCategory=false;
     float ZZMass, weight;
     for (unsigned int it=0; it<InputTypeSize; it++){
       TTree*& tree = treeGroup.at(it);
-      tree->SetBranchAddress("ZZMass", &ZZMass);
-      tree->SetBranchAddress("weight", &weight);
+      isCategory=(it==0);
+      tree->SetBranchStatus("*", 0);
+      bookBranch(tree, "weight", &weight);
+      bookBranch(tree, "ZZMass", &ZZMass);
       if (!isCategory){
         TString catFlagName = TString("is_") + strCategory + TString("_") + getACHypothesisName(hypo);
-        tree->SetBranchAddress(catFlagName, &isCategory);
+        bookBranch(tree, catFlagName, &isCategory);
       }
     }
-    ExtendedBinning binning=getMassBinning(treeChosen, ZZMass, isCategory, proctype==ProcessHandler::kQQBkg);
+    isCategory=true;
+    ExtendedBinning binning("ZZMass");
+    if (proctype==ProcessHandler::kTT || proctype==ProcessHandler::kBB || strGenerator=="JHUGen"){ // On-shell - only samples
+      binning.addBinBoundary(70.);
+      binning.addBinBoundary(theSqrts*1000.);
+    }
+    else binning = getMassBinning(treeChosen, ZZMass, isCategory, proctype==ProcessHandler::kQQBkg);
 
     vector<ExtendedHistogram_1D*> hMass; hMass.assign(InputTypeSize, nullptr);
+    std::vector<TreeHistogramAssociation_1D> treeAssocList; treeAssocList.reserve(InputTypeSize);
     for (unsigned int it=0; it<InputTypeSize; it++){
-      ExtendedHistogram_1D*& hh = hMass.at(it);
       TTree*& tree = treeGroup.at(it);
-      hh = new ExtendedHistogram_1D(Form("MassDistribution_%s_%i", tree->GetName(), it), "", binning);
+      TString hname = Form("MassDistribution_%s_%i", tree->GetName(), it);
+      treeAssocList.emplace_back(
+        hname+"_Smooth", "",
+        tree, ZZMass, weight, isCategory
+      );
+      ExtendedHistogram_1D*& hh = hMass.at(it); hh = new ExtendedHistogram_1D(hname, "", binning);
       isCategory=(it==0);
       for (int ev=0; ev<tree->GetEntries(); ev++){
         tree->GetEntry(ev);
@@ -253,7 +270,16 @@ void acquireMassRatio_ProcessNominalToNominalInclusive_one(
         hh->fill(ZZMass, weight);
       }
     }
-    vector<ExtendedHistogram_1D> hRatio;
+    vector<TH1F*> hSmoothList = getSimultaneousSmoothHistograms(binning, treeAssocList, 5 + 5*(proctype==ProcessHandler::kZX));
+    for (unsigned int it=0; it<InputTypeSize; it++){
+      ExtendedHistogram_1D*& hh = hMass.at(it);
+      TString hname = hh->getName();
+      TH1F*& hSmooth=hSmoothList.at(it);
+      *(hh->getHistogram()) = *hSmooth;
+      delete hSmooth;
+      hh->getHistogram()->SetName(hname);
+      for (int bin=1; bin<=hh->getHistogram()->GetNbinsX(); bin++) MELAout << "Bin " << bin << ": " << hh->getHistogram()->GetBinContent(bin) << " +- " << hh->getHistogram()->GetBinError(bin) << endl;
+    }
     for (unsigned int it=1; it<InputTypeSize; it++){
       TTree*& tree = treeGroup.at(it);
       ExtendedHistogram_1D*& hh = hMass.at(it);
@@ -261,39 +287,75 @@ void acquireMassRatio_ProcessNominalToNominalInclusive_one(
       hRatio.push_back(ExtendedHistogram_1D::divideHistograms(*hh, *hi, true, Form("MassRatio_%s", tree->GetName())));
     }
     for (auto& hh:hMass) delete hh;
-    for (auto& hr:hRatio){
-      foutput->WriteTObject(hr.getHistogram());
-      TGraphErrors* gr = hr.getGraph(Form("gr_%s", hr.getName().Data()));
-      foutput->WriteTObject(gr);
-      {
-        if (proctype==ProcessHandler::kQQBkg){
-          double omitbelow=220;
-          regularizeSlice(gr, nullptr, omitbelow, gr->GetX()[gr->GetN()-1]-1e-4, 10000, 0.2, 0.01);
-        }
-        else{
-          double omitbelow=1500;
-          regularizeSlice(gr, nullptr, omitbelow, gr->GetX()[gr->GetN()-1]-1e-4, 100, 0.2, 0.01);
-        }
-        gr->SetName(Form("%s_Smooth", gr->GetName()));
-        foutput->WriteTObject(gr);
+  }
 
-        TGraph* grPatched = genericPatcher(
-          gr, Form("%s_Patched", gr->GetName()),
-          70., theSqrts*1000.,
-          getFcn_a0plusa1timesXN<1>, getFcn_a0plusa1overXN<1>,
-          false, true,
-          nullptr
-        );
-        foutput->WriteTObject(grPatched);
-        TSpline3* spPatched = convertGraphToSpline3(grPatched, false, false);
-        TString spname=grPatched->GetName(); replaceString(spname, "gr_", "");
-        spPatched->SetName(spname); spPatched->SetTitle(gr->GetName());
-        foutput->WriteTObject(spPatched);
-        delete spPatched;
-        delete grPatched;
-      }
-      delete gr;
+  vector<TGraph*> grRatioList; grRatioList.reserve(hRatio.size());
+  bool useEfficiencyAtan=false;
+  for (auto& hr:hRatio){
+    foutput->WriteTObject(hr.getHistogram());
+    TGraphErrors* gr = hr.getGraph(Form("gr_%s", hr.getName().Data()));
+    foutput->WriteTObject(gr);
+
+    if (proctype==ProcessHandler::kQQBkg){
+      double omitbelow=220;
+      regularizeSlice(gr, nullptr, omitbelow, gr->GetX()[gr->GetN()-1]-1e-4, 10000, 0.2, 0.01);
     }
+    else{
+      double omitbelow=1500;
+      regularizeSlice(gr, nullptr, omitbelow, gr->GetX()[gr->GetN()-1]-1e-4, 100, 0.2, 0.01);
+    }
+    gr->SetName(Form("%s_Smooth", gr->GetName()));
+    foutput->WriteTObject(gr);
+    grRatioList.push_back(gr);
+
+    TGraph* grPatched = genericPatcher(
+      gr, Form("%s_Patched", gr->GetName()),
+      70., theSqrts*1000.,
+      getFcn_a0plusa1timesXN<1>, getFcn_a0plusa1overXN<1>,
+      false, true,
+      nullptr
+    );
+    if (grPatched->Eval(ZZMass_Supremum)<0.){
+      delete grPatched;
+      grPatched = genericPatcher(
+        gr, Form("%s_Patched", gr->GetName()),
+        70., theSqrts*1000.,
+        getFcn_a0plusa1timesXN<1>, getFcn_EfficiencyAtan,
+        false, false,
+        nullptr
+      );
+      if (grPatched->Eval(ZZMass_Supremum)<0.) MELAerr << "acquireMassRatio_ProcessNominalToNominalInclusive_one: ERROR! grPatched " << grPatched->GetName() << " is still negative at sqrts!" << endl;
+      else useEfficiencyAtan=true;
+    }
+    delete grPatched;
+  }
+  if (useEfficiencyAtan) MELAout << "acquireMassRatio_ProcessNominalToNominalInclusive_one: Will use the getFcn_EfficiencyAtan function for high mass..." << endl;
+  for (auto*& gr:grRatioList){
+    TGraph* grPatched = nullptr;
+    if (!useEfficiencyAtan) grPatched = genericPatcher(
+      gr, Form("%s_Patched", gr->GetName()),
+      70., theSqrts*1000.,
+      getFcn_a0plusa1timesXN<1>, getFcn_a0plusa1overXN<1>,
+      false, true,
+      nullptr
+    );
+    else grPatched = genericPatcher(
+      gr, Form("%s_Patched", gr->GetName()),
+      70., theSqrts*1000.,
+      getFcn_a0plusa1timesXN<1>, getFcn_EfficiencyAtan,
+      false, false,
+      nullptr
+    );
+
+    foutput->WriteTObject(grPatched);
+    TSpline3* spPatched = convertGraphToSpline3(grPatched, false, false);
+    TString spname=grPatched->GetName(); replaceString(spname, "gr_", "");
+    spPatched->SetName(spname); spPatched->SetTitle(gr->GetName());
+    foutput->WriteTObject(spPatched);
+
+    delete spPatched;
+    delete grPatched;
+    delete gr;
   }
 
   for (unsigned int it=0; it<InputTypeSize; it++){ for (auto& finput:finputList.at(it)) finput->Close(); }
@@ -518,27 +580,46 @@ void acquireMassRatio_ProcessSystToNominal_one(
     float ZZMass, weight;
     for (unsigned int it=0; it<InputTypeSize; it++){
       TTree*& tree = treeGroup.at(it);
-      tree->SetBranchAddress("ZZMass", &ZZMass);
-      tree->SetBranchAddress("weight", &weight);
+      tree->SetBranchStatus("*", 0);
+      bookBranch(tree, "weight", &weight);
+      bookBranch(tree, "ZZMass", &ZZMass);
       if (!isCategory){
         TString catFlagName = TString("is_") + strCategory + TString("_") + getACHypothesisName(hypo);
-        tree->SetBranchAddress(catFlagName, &isCategory);
+        bookBranch(tree, catFlagName, &isCategory);
       }
     }
-    ExtendedBinning binning=getMassBinning(treeChosen, ZZMass, isCategory, proctype==ProcessHandler::kQQBkg);
+    ExtendedBinning binning("ZZMass");
+    if (proctype==ProcessHandler::kTT || proctype==ProcessHandler::kBB || strGenerator=="JHUGen"){ // On-shell - only samples
+      binning.addBinBoundary(70.);
+      binning.addBinBoundary(theSqrts*1000.);
+    }
+    else binning = getMassBinning(treeChosen, ZZMass, isCategory, proctype==ProcessHandler::kQQBkg);
 
     vector<ExtendedHistogram_1D*> hMass; hMass.assign(InputTypeSize, nullptr);
+    std::vector<TreeHistogramAssociation_1D> treeAssocList; treeAssocList.reserve(InputTypeSize);
     for (unsigned int it=0; it<InputTypeSize; it++){
-      ExtendedHistogram_1D*& hh = hMass.at(it);
       TTree*& tree = treeGroup.at(it);
-      hh = new ExtendedHistogram_1D(Form("MassDistribution_%s_%i", tree->GetName(), it), "", binning);
-      isCategory=(category==Inclusive);
+      TString hname = Form("MassDistribution_%s_%i", tree->GetName(), it);
+      treeAssocList.emplace_back(
+        hname+"_Smooth", "",
+        tree, ZZMass, weight, isCategory
+      );
+      ExtendedHistogram_1D*& hh = hMass.at(it); hh = new ExtendedHistogram_1D(hname, "", binning);
       for (int ev=0; ev<tree->GetEntries(); ev++){
         tree->GetEntry(ev);
         if (!isCategory) continue;
         hh->fill(ZZMass, weight);
       }
-      for (int bin=1; bin<=hh->getHistogram()->GetNbinsX(); bin++) MELAout << "Bin " << bin << ": " << hh->getHistogram()->GetBinContent(bin) << endl;
+    }
+    vector<TH1F*> hSmoothList = getSimultaneousSmoothHistograms(binning, treeAssocList, 5);
+    for (unsigned int it=0; it<InputTypeSize; it++){
+      ExtendedHistogram_1D*& hh = hMass.at(it);
+      TString hname = hh->getName();
+      TH1F*& hSmooth=hSmoothList.at(it);
+      *(hh->getHistogram()) = *hSmooth;
+      delete hSmooth;
+      hh->getHistogram()->SetName(hname);
+      for (int bin=1; bin<=hh->getHistogram()->GetNbinsX(); bin++) MELAout << "Bin " << bin << ": " << hh->getHistogram()->GetBinContent(bin) << " +- " << hh->getHistogram()->GetBinError(bin) << endl;
     }
     vector<ExtendedHistogram_1D> hRatio;
     for (unsigned int it=1; it<InputTypeSize; it++){
@@ -546,6 +627,10 @@ void acquireMassRatio_ProcessSystToNominal_one(
       ExtendedHistogram_1D*& hh = hMass.at(it);
       ExtendedHistogram_1D*& hi = hMass.at(0);
       hRatio.push_back(ExtendedHistogram_1D::divideHistograms(*hh, *hi, true, Form("MassRatio_%s", tree->GetName())));
+      for (int bin=0; bin<=hRatio.back().getHistogram()->GetNbinsX()+1; bin++){
+        if (hi->getHistogram()->GetBinContent(bin)>0.) hRatio.back().getHistogram()->SetBinError(bin, hh->getHistogram()->GetBinError(bin) / hi->getHistogram()->GetBinContent(bin));
+        else hRatio.back().getHistogram()->SetBinError(bin, 0);
+      }
     }
     for (auto& hh:hMass) delete hh;
     for (auto& hr:hRatio){
@@ -675,8 +760,12 @@ void acquireMassRatio_ProcessSystToNominal_PythiaMINLO_one(
 
   // Register the discriminants
   vector<KDspecs> KDlist;
+  vector<TString> strExtraCatVars_short;
   getLikelihoodDiscriminants(channel, category, syst, KDlist);
-  getCategorizationDiscriminants(syst, KDlist);
+  if (category!=Inclusive){
+    getCategorizationDiscriminants(syst, KDlist);
+    getExtraCategorizationVariables<short>(globalCategorizationScheme, syst, strExtraCatVars_short);
+  }
 
   for (TString const& identifier:strSampleIdentifiers){
     // For the non-nominal tree
@@ -736,6 +825,8 @@ void acquireMassRatio_ProcessSystToNominal_PythiaMINLO_one(
         tree->bookBranch<short>("Z2Flav", 0);
         // Variables for KDs
         for (auto& KD:KDlist){ for (auto& v:KD.KDvars) tree->bookBranch<float>(v, 0); }
+        // Extra categorization variables
+        for (auto& s:strExtraCatVars_short) tree->bookBranch<short>(s, -1);
         tree->silenceUnused(); // Will no longer book another branch
       }
       theSampleSet->setPermanentWeights(CJLSTSet::NormScheme_OneOverNgen, false, true); // One/Ngen is a better choice when we have a sparse set of samples
@@ -757,6 +848,8 @@ void acquireMassRatio_ProcessSystToNominal_PythiaMINLO_one(
       theAnalyzer.addConsumed<short>("Z2Flav");
       // Add discriminant builders
       for (auto& KD:KDlist){ theAnalyzer.addDiscriminantBuilder(KD.KDname, KD.KD, KD.KDvars); }
+      // Add extra categorization variables
+      for (auto& s:strExtraCatVars_short) theAnalyzer.addConsumed<short>(s);
       // Add systematics handle
       theAnalyzer.addSystematic(strSystematics, systhandle);
       // Loop
@@ -940,7 +1033,7 @@ void acquireMassRatio_ProcessSystToNominal_PythiaMINLO_one(
     for (TString const& KDname:KDset) KDvars[KDname]=0;
     vector<ExtendedBinning> KDbinning;
     for (TString const& KDname:KDset){
-      if (KDname!="ZZMass") KDbinning.push_back(getDiscriminantFineBinning(channel, category, KDname, (CategorizationHelpers::MassRegion) massregion));
+      if (KDname!="ZZMass") KDbinning.push_back(getDiscriminantFineBinning(channel, category, hypo, KDname, (CategorizationHelpers::MassRegion) massregion));
       else KDbinning.push_back(binning_mass);
     }
     unsigned int nKDs = KDset.size();
@@ -962,27 +1055,31 @@ void acquireMassRatio_ProcessSystToNominal_PythiaMINLO_one(
         KDvars.find(KDset.at(1))!=KDvars.cend()
       );
 
-      TH2F* hDistro[2];
+      std::vector<TreeHistogramAssociation_2D> treeAssocList; treeAssocList.reserve(2);
       for (unsigned int i=0; i<2; i++){
         TTree* tree = theOutputTree[i]->getSelectedTree();
-        isCategory=true;
-        hDistro[i] = getSmoothHistogram(
+        treeAssocList.emplace_back(
           (i==0 ? strSystematics_Nominal.Data() : strSystematics.Data()), "",
-          KDbinning.at(0), KDbinning.at(1),
-          tree, KDvars.find(KDset.at(0))->second, KDvars.find(KDset.at(1))->second, weight, isCategory,
-          1, 10
+          tree, KDvars.find(KDset.at(0))->second, KDvars.find(KDset.at(1))->second, weight, isCategory
         );
-        if (KDset.at(0)=="ZZMass") conditionalizeHistogram<TH2F>(hDistro[i], 0, nullptr, false, true);
+      }
+      vector<TH2F*> hDistro = getSimultaneousSmoothHistograms(
+        KDbinning.at(0), KDbinning.at(1), treeAssocList,
+        1, 10
+      );
+      for (auto& hh:hDistro){
+        MELAout << "Integral of distribution : " << hh->Integral() << endl;
+        if (KDset.at(0)=="ZZMass") conditionalizeHistogram<TH2F>(hh, 0, nullptr, false, true);
         else{
-          double hist_integral = getHistogramIntegralAndError(hDistro[i], 1, hDistro[i]->GetNbinsX(), 1, hDistro[i]->GetNbinsY(), false, nullptr);
-          hDistro[i]->Scale(1./hist_integral);
+          double hist_integral = getHistogramIntegralAndError(hh, 1, hh->GetNbinsX(), 1, hh->GetNbinsY(), false, nullptr);
+          hh->Scale(1./hist_integral);
         }
       }
       TH2F* hRatio = new TH2F("RatioWithKD", "", KDbinning.at(0).getNbins(), KDbinning.at(0).getBinning(), KDbinning.at(1).getNbins(), KDbinning.at(1).getBinning());
-      if (!doInvertRatio) divideHistograms(hDistro[1], hDistro[0], hRatio, false);
-      else divideHistograms(hDistro[0], hDistro[1], hRatio, false);
+      if (!doInvertRatio) divideHistograms(hDistro.at(1), hDistro.at(0), hRatio, false);
+      else divideHistograms(hDistro.at(0), hDistro.at(1), hRatio, false);
       savedir->WriteTObject(hRatio); delete hRatio;
-      for (unsigned int i=0; i<2; i++) delete hDistro[i];
+      for (auto& hh:hDistro) delete hh;
     }
     else if (nKDs==3){
       assert(
@@ -993,29 +1090,31 @@ void acquireMassRatio_ProcessSystToNominal_PythiaMINLO_one(
         KDvars.find(KDset.at(2))!=KDvars.cend()
       );
 
-      TH3F* hDistro[2];
+      std::vector<TreeHistogramAssociation_3D> treeAssocList; treeAssocList.reserve(2);
       for (unsigned int i=0; i<2; i++){
         TTree* tree = theOutputTree[i]->getSelectedTree();
-        isCategory=true;
-        hDistro[i] = getSmoothHistogram(
+        treeAssocList.emplace_back(
           (i==0 ? strSystematics_Nominal.Data() : strSystematics.Data()), "",
-          KDbinning.at(0), KDbinning.at(1), KDbinning.at(2),
-          tree, KDvars.find(KDset.at(0))->second, KDvars.find(KDset.at(1))->second, KDvars.find(KDset.at(2))->second, weight, isCategory,
-          1, 10, 10
+          tree, KDvars.find(KDset.at(0))->second, KDvars.find(KDset.at(1))->second, KDvars.find(KDset.at(2))->second, weight, isCategory
         );
-        MELAout << "Integral of distribution " << i << ": " << hDistro[i]->Integral() << endl;
-        if (KDset.at(0)=="ZZMass") conditionalizeHistogram<TH3F>(hDistro[i], 0, nullptr, false, true);
+      }
+      vector<TH3F*> hDistro = getSimultaneousSmoothHistograms(
+        KDbinning.at(0), KDbinning.at(1), KDbinning.at(2), treeAssocList,
+        1, 10, 10
+      );
+      for (auto& hh:hDistro){
+        MELAout << "Integral of distribution : " << hh->Integral() << endl;
+        if (KDset.at(0)=="ZZMass") conditionalizeHistogram<TH3F>(hh, 0, nullptr, false, true);
         else{
-          double hist_integral = getHistogramIntegralAndError(hDistro[i], 1, hDistro[i]->GetNbinsX(), 1, hDistro[i]->GetNbinsY(), 1, hDistro[i]->GetNbinsZ(), false, nullptr);
-          hDistro[i]->Scale(1./hist_integral);
+          double hist_integral = getHistogramIntegralAndError(hh, 1, hh->GetNbinsX(), 1, hh->GetNbinsY(), 1, hh->GetNbinsZ(), false, nullptr);
+          hh->Scale(1./hist_integral);
         }
       }
       TH3F* hRatio = new TH3F("RatioWithKD", "", KDbinning.at(0).getNbins(), KDbinning.at(0).getBinning(), KDbinning.at(1).getNbins(), KDbinning.at(1).getBinning(), KDbinning.at(2).getNbins(), KDbinning.at(2).getBinning());
-      if (!doInvertRatio) divideHistograms(hDistro[1], hDistro[0], hRatio, false);
-      else divideHistograms(hDistro[0], hDistro[1], hRatio, false);
-      MELAout << "Integral of ratio " << hRatio->Integral() << endl;
+      if (!doInvertRatio) divideHistograms(hDistro.at(1), hDistro.at(0), hRatio, false);
+      else divideHistograms(hDistro.at(0), hDistro.at(1), hRatio, false);
       savedir->WriteTObject(hRatio); delete hRatio;
-      for (unsigned int i=0; i<2; i++) delete hDistro[i];
+      for (auto& hh:hDistro) delete hh;
     }
   }
   foutput->cd();
