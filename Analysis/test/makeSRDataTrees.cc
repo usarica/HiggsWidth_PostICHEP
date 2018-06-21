@@ -10,10 +10,7 @@
 const TString user_output_dir = "output/";
 #endif
 
-// Function to build one templates
-// ichan = 0,1,2 (final state corresponds to 4mu, 4e, 2mu2e respectively)
-// theSqrts = 13 (CoM energy) is fixed in Samples.h
-void makeFinalSRDataTrees_one(const Channel channel, const Category category, ACHypothesis const& hypo, MassRegion massregion, const TString fixedDate){
+void makeSRDataTrees_one(const Channel channel, const Category category, ACHypothesis const& hypo, MassRegion massregion, const TString fixedDate){
   if (channel==NChannels) return;
   if (!CheckSetTemplatesCategoryScheme(category)) return;
 
@@ -122,26 +119,55 @@ void makeFinalSRDataTrees_one(const Channel channel, const Category category, AC
   }
   unsigned int nKDs = KDset.size();
   MELAout << "Number of template dimensions = " << nKDs << ": " << KDset << endl;
-  TTree* tin = theFinalTree->getSelectedTree();
+
   TTree* tout=nullptr;
-  {
-    unsigned int jKD=0;
-    for (unsigned int iKD=0; iKD<KDset.size(); iKD++){
-      TString newbranchname;
-      if (KDset.at(iKD)=="ZZMass") newbranchname="mass";
-      else{
-        jKD++;
-        newbranchname = Form("KD%i", jKD);
+  TTree* tin = theFinalTree->getSelectedTree();
+  if (!tin) MELAerr << "Input tree is not found!" << endl;
+  else{
+    MELAout << "Input tree is present, will now truncate it." << endl;
+    {
+      unsigned int jKD=0;
+      for (unsigned int iKD=0; iKD<KDset.size(); iKD++){
+        TString newbranchname;
+        if (KDset.at(iKD)=="ZZMass") newbranchname="mass";
+        else{
+          jKD++;
+          newbranchname = Form("KD%i", jKD);
+        }
+        MELAout << "\t- Adjusting branch name " << KDset.at(iKD) << " -> " << newbranchname << endl;
+        TBranch* br = tin->GetBranch(KDset.at(iKD));
+        if (br) br->SetName(newbranchname);
+        else MELAerr << "\t\t- Branch " << KDset.at(iKD) << " is not found!" << endl;
+        TLeaf* lf = tin->GetLeaf(KDset.at(iKD));
+        if (lf) lf->SetName(newbranchname);
+        else MELAerr << "\t\t- Leaf " << KDset.at(iKD) << " is not found!" << endl;
       }
-      TBranch* br = tin->GetBranch(KDset.at(iKD));
-      br->SetName(newbranchname);
-      TLeaf* lf = tin->GetLeaf(KDset.at(iKD));
-      lf->SetName(newbranchname);
+    }
+    tout = tin->CopyTree(catFlagName);
+    if (!tout){
+      MELAerr << "Output tree is null!" << endl;
+      tout = new TTree("data_obs", "data_obs_tree");
+      std::vector<float> tmpKDvals; tmpKDvals.assign(KDset.size(), 0);
+      {
+        unsigned int jKD=0;
+        for (unsigned int iKD=0; iKD<KDset.size(); iKD++){
+          TString newbranchname;
+          if (KDset.at(iKD)=="ZZMass") newbranchname="mass";
+          else{
+            jKD++;
+            newbranchname = Form("KD%i", jKD);
+          }
+          tout->Branch(newbranchname, &(tmpKDvals.at(iKD)));
+        }
+      }
+      foutput->WriteTObject(tout);
+    }
+    else{
+      MELAout << "Output tree is present. Writing it..." << endl;
+      tout->SetName("data_obs");
+      foutput->WriteTObject(tout);
     }
   }
-  tout = tin->CopyTree(catFlagName);
-  tout->SetName("data_obs");
-  foutput->WriteTObject(tout);
 
   delete tout;
   delete theFinalTree;
@@ -149,4 +175,17 @@ void makeFinalSRDataTrees_one(const Channel channel, const Category category, AC
   delete theSampleSet;
   foutput->Close();
   MELAout.close();
+}
+
+void makeSRDataTrees(CategorizationHelpers::MassRegion massregion, const TString fixedDate=""){
+  if (!CheckSetTemplatesCategoryScheme(Inclusive)) return;
+  vector<Category> allowedCats = getAllowedCategories(globalCategorizationScheme);
+  for (int ch=0; ch<(int) NChannels; ch++){
+    Channel channel = (Channel) ch;
+    if (channel==k4l || channel==k2l2l) continue;
+    for (int ih=0; ih<nACHypotheses; ih++){
+      ACHypothesis hypo = (ACHypothesis) ih;
+      for (auto& category:allowedCats) makeSRDataTrees_one(channel, category, hypo, massregion, fixedDate);
+    }
+  }
 }
