@@ -475,32 +475,41 @@ ExtendedBinning TemplateHelpers::getDiscriminantCoarseBinning(const SampleHelper
   }
   return res;
 }
-float TemplateHelpers::getDiscriminantSmearingStrengthCoefficient(TString KDname, ProcessHandler::ProcessType proctype, CategorizationHelpers::MassRegion /*massregion*/){
+float TemplateHelpers::getDiscriminantSmearingStrengthCoefficient(CategorizationHelpers::Category category, ACHypothesisHelpers::ACHypothesis hypo, TString KDname, ProcessHandler::ProcessType proctype, CategorizationHelpers::MassRegion massregion){
   float res=0;
-  if (KDname=="ZZMass") res=2;
-  else{
-    DiscriminantClasses::Type KDtype=DiscriminantClasses::getKDType(KDname);
-    switch (KDtype){
-    case DiscriminantClasses::kDL1dec:
-    case DiscriminantClasses::kDL1decint:
-    case DiscriminantClasses::kCL1decint:
-    case DiscriminantClasses::kDa2dec:
-    case DiscriminantClasses::kDa2decint:
-    case DiscriminantClasses::kCa2decint:
-    case DiscriminantClasses::kDa3dec:
-    case DiscriminantClasses::kDa3decint:
-    case DiscriminantClasses::kCa3decint:
-    case DiscriminantClasses::kDL1ZGsdec:
-    case DiscriminantClasses::kDL1ZGsdecint:
-    case DiscriminantClasses::kCL1ZGsdecint:
-      res=1;
-      break;
-    default:
-      res=2;
-      break;
+  if (massregion==CategorizationHelpers::kOnshell){
+    if (KDname=="ZZMass") res=2;
+    else{
+      DiscriminantClasses::Type KDtype=DiscriminantClasses::getKDType(KDname);
+      switch (KDtype){
+      case DiscriminantClasses::kDL1dec:
+      case DiscriminantClasses::kDL1decint:
+      case DiscriminantClasses::kCL1decint:
+      case DiscriminantClasses::kDa2dec:
+      case DiscriminantClasses::kDa2decint:
+      case DiscriminantClasses::kCa2decint:
+      case DiscriminantClasses::kDa3dec:
+      case DiscriminantClasses::kDa3decint:
+      case DiscriminantClasses::kCa3decint:
+      case DiscriminantClasses::kDL1ZGsdec:
+      case DiscriminantClasses::kDL1ZGsdecint:
+      case DiscriminantClasses::kCL1ZGsdecint:
+        res=(proctype==ProcessHandler::kZX ? 2 : 1);
+        break;
+      default:
+        res=2;
+        break;
+      }
     }
+    if (
+      hypo==ACHypothesisHelpers::kL1 && (
+        ((proctype==ProcessHandler::kZH || proctype==ProcessHandler::kWH) && category==CategorizationHelpers::JJVBFTagged)
+        ||
+        (proctype==ProcessHandler::kVBF && category==CategorizationHelpers::HadVHTagged)
+        )
+      ) res *= 5;
   }
-  if (proctype==ProcessHandler::kZX) res *= 5;
+  else res=2;
   return res;
 }
 
