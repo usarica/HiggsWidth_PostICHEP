@@ -1,6 +1,5 @@
 #!/bin/sh
 
-
 RUNDIR=${LS_SUBCWD}
 cd $RUNDIR
 echo "LSF job running in: " `pwd`
@@ -12,14 +11,7 @@ cd $RUNDIR
 
 echo $CMSSW_VERSION
 
-runfile=$2
-extcmd="()"
-if [[ "$3" != "" ]];then
-  extcmd=$3
-fi
+echo "Host name: "$(hostname)
 
-cmd=$runfile".c+"$extcmd
-
-root -b -l -q loadLib.C $cmd
-
+runHiggsWidthROOTCommand.py --loadlib loadLib.C --script $2 --function $3 --command $4
 
