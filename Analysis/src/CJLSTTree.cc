@@ -5,9 +5,9 @@
 CJLSTTree::CJLSTTree(TString strsample, const TString treename, const TString failedtreename, const TString countersname) :
   BaseTree(CJLSTTree::constructCJLSTSamplePath(strsample), treename, failedtreename, countersname),
   associatedSet(nullptr),
-  sampleIdentifier(strsample),
   MHVal(-1)
 {
+  sampleIdentifier = strsample;
   if (valid) MHVal = SampleHelpers::findPoleMass(sampleIdentifier);
 }
 

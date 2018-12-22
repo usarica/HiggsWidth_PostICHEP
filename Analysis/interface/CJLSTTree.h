@@ -14,7 +14,6 @@ protected:
   CJLSTSet* associatedSet;
 
 public:
-  const TString sampleIdentifier;
   float MHVal;
 
   static TString constructCJLSTSamplePath(TString strsample);
