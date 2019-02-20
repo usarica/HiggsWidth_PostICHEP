@@ -3,35 +3,36 @@
 #include <iterator>
 #include <cassert>
 #include "BaseTreeLooper.h"
-#include "BaseTreeLooper.hpp"
+#include "MELAStreamHelpers.hh"
 
 
 using namespace std;
+using namespace MELAStreamHelpers;
 
 
-BaseTreeLooper::BaseTreeLooper() : sampleIdOpt(BaseTreeLooper::kNoStorage), maxNEvents(-1), verbose(false) { setExternalProductList(); setExternalProductTree(); }
-BaseTreeLooper::BaseTreeLooper(CJLSTTree* inTree) : sampleIdOpt(BaseTreeLooper::kNoStorage), maxNEvents(-1), verbose(false) { this->addTree(inTree); setExternalProductList(); setExternalProductTree(); }
+BaseTreeLooper::BaseTreeLooper() : IvyBase(), sampleIdOpt(BaseTreeLooper::kNoStorage), maxNEvents(-1) { setExternalProductList(); setExternalProductTree(); }
+BaseTreeLooper::BaseTreeLooper(CJLSTTree* inTree) : IvyBase(), sampleIdOpt(BaseTreeLooper::kNoStorage), maxNEvents(-1) { this->addTree(inTree); setExternalProductList(); setExternalProductTree(); }
 BaseTreeLooper::BaseTreeLooper(std::vector<CJLSTTree*> const& inTreeList) :
+  IvyBase(),
+
   sampleIdOpt(BaseTreeLooper::kNoStorage),
   treeList(inTreeList),
-  maxNEvents(-1),
-  verbose(false)
+  maxNEvents(-1)
 {
   setExternalProductList();
   setExternalProductTree();
 }
 BaseTreeLooper::BaseTreeLooper(CJLSTSet const* inTreeSet) :
+  IvyBase(),
+
   sampleIdOpt(BaseTreeLooper::kNoStorage),
   treeList(inTreeSet->getCJLSTTreeList()),
-  maxNEvents(-1),
-  verbose(false)
+  maxNEvents(-1)
 {
   setExternalProductList();
   setExternalProductTree();
 }
 BaseTreeLooper::~BaseTreeLooper(){}
-
-void BaseTreeLooper::setVerbosity(bool flag){ verbose = flag; }
 
 void BaseTreeLooper::addTree(CJLSTTree* tree){ this->treeList.push_back(tree); }
 
@@ -89,32 +90,6 @@ void BaseTreeLooper::recordProductsToTree(){
   this->clearProducts();
 }
 
-bool BaseTreeLooper::linkConsumes(CJLSTTree* tree){
-  bool process = tree->isValid();
-  if (process){
-    process &= this->linkConsumed<short>(tree);
-    process &= this->linkConsumed<unsigned int>(tree);
-    process &= this->linkConsumed<int>(tree);
-    process &= this->linkConsumed<unsigned long>(tree);
-    process &= this->linkConsumed<long>(tree);
-    process &= this->linkConsumed<long long>(tree);
-    process &= this->linkConsumed<float>(tree);
-    process &= this->linkConsumed<double>(tree);
-    process &= this->linkConsumed<std::vector<short>>(tree);
-    process &= this->linkConsumed<std::vector<unsigned int>>(tree);
-    process &= this->linkConsumed<std::vector<int>>(tree);
-    process &= this->linkConsumed<std::vector<unsigned long>>(tree);
-    process &= this->linkConsumed<std::vector<long>>(tree);
-    process &= this->linkConsumed<std::vector<long long>>(tree);
-    process &= this->linkConsumed<std::vector<float>>(tree);
-    process &= this->linkConsumed<std::vector<double>>(tree);
-    // Silence unused branches
-    tree->silenceUnused();
-  }
-  if (!process) MELAerr << "BaseTreeLooper::linkConsumes: Linking failed for some reason for tree " << tree->sampleIdentifier << endl;
-  return process;
-}
-
 void BaseTreeLooper::loop(bool loopSelected, bool loopFailed, bool keepProducts){
   // Loop over the trees
   unsigned int ev_acc=0;
@@ -124,7 +99,7 @@ void BaseTreeLooper::loop(bool loopSelected, bool loopFailed, bool keepProducts)
   const bool storeSampleIdByHashVal = (sampleIdOpt==kStoreByHashVal);
   vector<unsigned int> loopRecSelList, loopTotalSelList, loopRecFailList, loopTotalFailList;
   vector<unsigned int>::iterator it_loopRecSelList, it_loopTotalSelList, it_loopRecFailList, it_loopTotalFailList;
-  if (verbose && !treeList.empty()){
+  if (verbosity>=TVar::INFO && !treeList.empty()){
     loopRecSelList.assign(treeList.size(), 0); it_loopRecSelList=loopRecSelList.begin();
     loopTotalSelList.assign(treeList.size(), 0); it_loopTotalSelList=loopTotalSelList.begin();
     loopRecFailList.assign(treeList.size(), 0); it_loopRecFailList=loopRecFailList.begin();
@@ -178,13 +153,13 @@ void BaseTreeLooper::loop(bool loopSelected, bool loopFailed, bool keepProducts)
                 product.setNamedVal("EventNumber", *(vallonglongs["EventNumber"]));
               }
               this->addProduct(product, &ev_rec);
-              if (verbose) (*it_loopRecSelList)++;
+              if (verbosity>=TVar::INFO) (*it_loopRecSelList)++;
             }
           }
         }
         HelperFunctions::progressbar(ev, nevents);
         ev++; ev_acc++;
-        if (verbose) (*it_loopTotalSelList)++;
+        if (verbosity>=TVar::INFO) (*it_loopTotalSelList)++;
       }
     }
     // Loop over failed events
@@ -207,20 +182,20 @@ void BaseTreeLooper::loop(bool loopSelected, bool loopFailed, bool keepProducts)
                 product.setNamedVal("EventNumber", *(vallonglongs["EventNumber"]));
               }
               this->addProduct(product, &ev_rec);
-              if (verbose) (*it_loopRecFailList)++;
+              if (verbosity>=TVar::INFO) (*it_loopRecFailList)++;
             }
           }
         }
         HelperFunctions::progressbar(ev, nevents);
         ev++; ev_acc++;
-        if (verbose) (*it_loopTotalFailList)++;
+        if (verbosity>=TVar::INFO) (*it_loopTotalFailList)++;
       }
     }
 
     // Record products to external tree
     this->recordProductsToTree();
 
-    if (verbose){
+    if (verbosity>=TVar::INFO){
       it_loopRecSelList++;
       it_loopRecFailList++;
       it_loopTotalSelList++;
@@ -228,7 +203,7 @@ void BaseTreeLooper::loop(bool loopSelected, bool loopFailed, bool keepProducts)
     }
   } // End loop over the trees
   MELAout << "BaseTreeLooper::loop: Total number of products: " << ev_rec << " / " << ev_acc << endl;
-  if (verbose){
+  if (verbosity>=TVar::INFO){
     for (unsigned int it=0; it<treeList.size(); it++){
       MELAout << "\t- BaseTreeLooper::loop: Total number of selected | failed products in tree " << it << ": "
         << loopRecSelList.at(it) << " / " << loopTotalSelList.at(it)

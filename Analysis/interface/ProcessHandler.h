@@ -22,6 +22,7 @@ public:
   };
 
   ProcessHandler(ProcessType proctype_, CategorizationHelpers::MassRegion massregion_);
+  virtual ~ProcessHandler(){}
 
   const ProcessHandler::ProcessType& getProcessType() const;
   const CategorizationHelpers::MassRegion& getProcessMassRegion() const;

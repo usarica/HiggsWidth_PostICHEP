@@ -195,11 +195,11 @@ void ZXFakeRateHandler::registerTree(CJLSTTree* tree){
   tree->bookBranch<BaseTree::BranchType_vfloat_t>("LepPt"); // See? This is not called LepLep!
   tree->bookBranch<BaseTree::BranchType_vfloat_t>("LepEta"); // See? This is not called LepLep either!
 
-  tree->getValRef("CRflag", CRFlagRef);
-  tree->getValRef("Z1Flav", Z1FlavRef);
-  tree->getValRef("LepLepId", LepIdRef);
-  tree->getValRef("LepPt", LepPtRef);
-  tree->getValRef("LepEta", LepEtaRef);
+  tree->getValRef<int>("CRflag", CRFlagRef);
+  tree->getValRef<short>("Z1Flav", Z1FlavRef);
+  tree->getValRef<vector<short>* const>("LepLepId", LepIdRef);
+  tree->getValRef<vector<float>* const>("LepPt", LepPtRef);
+  tree->getValRef<vector<float>* const>("LepEta", LepEtaRef);
 
   CRFlagRegistry[tree]=CRFlagRef;
   Z1FlavRegistry[tree]=Z1FlavRef;

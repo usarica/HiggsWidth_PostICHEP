@@ -29,6 +29,7 @@ protected:
 public:
   ReweightingBuilder(TString inStrWeight, ReweightingFunctions::ReweightingFunction_t infcn);
   ReweightingBuilder(std::vector<TString> inStrWeights, ReweightingFunctions::ReweightingFunction_t infcn);
+  virtual ~ReweightingBuilder(){}
 
   std::vector<TString> const& getWeightVariables() const;
 

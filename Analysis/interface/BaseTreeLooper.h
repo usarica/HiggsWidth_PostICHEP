@@ -1,6 +1,7 @@
 #ifndef BASETREELOOPER_H
 #define BASETREELOOPER_H
 
+#include "IvyBase.h"
 #include "CJLSTSet.h"
 #include "ReweightingBuilder.h"
 #include "ZXFakeRateHandler.h"
@@ -8,7 +9,7 @@
 #include "SystematicsHelpers.h"
 
 
-class BaseTreeLooper{
+class BaseTreeLooper : IvyBase{
 public:
   enum SampleIdStorageType{
     kNoStorage,
@@ -25,38 +26,6 @@ protected:
 
   // Max. events to process
   int maxNEvents;
-
-  // Verbosity flag
-  bool verbose;
-
-  // Consumes
-  std::unordered_map<TString, short*> valshorts;
-  std::unordered_map<TString, unsigned int*> valuints;
-  std::unordered_map<TString, int*> valints;
-  std::unordered_map<TString, unsigned long*> valulongs;
-  std::unordered_map<TString, long*> vallongs;
-  std::unordered_map<TString, long long*> vallonglongs;
-  std::unordered_map<TString, float*> valfloats;
-  std::unordered_map<TString, double*> valdoubles;
-
-  std::unordered_map<TString, std::vector<short>*> valVshorts;
-  std::unordered_map<TString, std::vector<unsigned int>*> valVuints;
-  std::unordered_map<TString, std::vector<int>*> valVints;
-  std::unordered_map<TString, std::vector<unsigned long>*> valVulongs;
-  std::unordered_map<TString, std::vector<long>*> valVlongs;
-  std::unordered_map<TString, std::vector<long long>*> valVlonglongs;
-  std::unordered_map<TString, std::vector<float>*> valVfloats;
-  std::unordered_map<TString, std::vector<double>*> valVdoubles;
-
-  template<typename T> bool linkConsumed(CJLSTTree* tree);
-  bool linkConsumes(CJLSTTree* tree);
-
-  // Get consumed map
-  template<typename T> void getConsumedMap(std::unordered_map<TString, T*>*& theMap);
-  template<typename T> void getConsumedMap(std::unordered_map<TString, T*> const*& theMap) const;
-
-  // Get consumed
-  template<typename T> bool getConsumed(TString name, T const*& val) const;
 
   // External dependencies
   std::unordered_map<TString, std::pair<Discriminant*, std::vector<TString>>> KDbuilders;
@@ -88,11 +57,7 @@ public:
   // Destructors
   virtual ~BaseTreeLooper();
 
-  // Set verbosity
-  void setVerbosity(bool flag);
-
   // Add the necessary objects
-  template<typename T> void addConsumed(TString name);
   void addDiscriminantBuilder(TString KDname, Discriminant* KDbuilder, std::vector<TString> const& KDvars);
   void addReweightingBuilder(TString rewgtname, ReweightingBuilder* Rewgtbuilder);
   void addZXFakeRateHandler(TString frname, ZXFakeRateHandler* ZXFakeRateHandler);
