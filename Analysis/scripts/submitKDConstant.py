@@ -12,7 +12,7 @@ import pprint
 import subprocess
 from datetime import date
 from optparse import OptionParser
-from HiggsWidth_PostICHEP.Analysis.ProcessHelpers import *
+from CMS_HiggsWidth_TemplateMaker.Analysis.ProcessHelpers import *
 
 
 class StageXBatchManager:
